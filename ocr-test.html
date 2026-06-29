@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lab OCR — SPPT Vision (Fase 1, JANGAN dipakai produksi)</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  :root {
+    --bg: #F8FAFC; --card: #FFFFFF; --primary: #2563EB; --text: #0F172A; --muted: #64748B; --border: #E2E8F0;
+    --font: 'Inter', system-ui, -apple-system, sans-serif; --mono: 'JetBrains Mono', 'Courier New', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); font-family: var(--font); color: var(--text); padding: 24px 16px; line-height: 1.5; }
+  .container { max-width: 640px; margin: 0 auto; }
+  .warning-banner {
+    background: #FEF3C7; border: 1px solid #F59E0B; color: #92400E; border-radius: 10px;
+    padding: 14px 16px; font-size: 13px; margin-bottom: 20px; line-height: 1.5;
+  }
+  .warning-banner b { display: block; margin-bottom: 4px; }
+  header { margin-bottom: 20px; }
+  header h1 { font-size: 20px; font-weight: 700; }
+  header p { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+  .step-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--primary); margin-bottom: 10px; }
+  input[type="file"] {
+    width: 100%; padding: 12px; border: 1px dashed var(--border); border-radius: 8px; background: var(--bg); font-size: 13px;
+  }
+  .preview-row { display: flex; gap: 16px; margin-top: 14px; flex-wrap: wrap; }
+  .preview-box { flex: 1; min-width: 140px; }
+  .preview-box span { display: block; font-size: 11px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+  .preview-box img, .preview-box canvas { width: 100%; border: 1px solid var(--border); border-radius: 8px; display: block; }
+  .status { font-size: 13px; color: var(--muted); margin-top: 12px; min-height: 18px; }
+  .status.active { color: var(--primary); font-weight: 600; }
+  .progress-bar { height: 6px; background: var(--border); border-radius: 4px; overflow: hidden; margin-top: 8px; display: none; }
+  .progress-bar.active { display: block; }
+  .progress-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s ease; }
+  textarea {
+    width: 100%; min-height: 200px; font-family: var(--mono); font-size: 13px; padding: 14px;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--bg); resize: vertical; white-space: pre;
+  }
+  .meta-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="warning-banner">
+    <b>Ini Fase 1 — Laboratorium, bukan fitur final.</b>
+    File ini cuma nampilin teks mentah yang dibaca Tesseract dari foto SPPT. Belum ada mesin regex,
+    belum ada pengisian otomatis ke kalkulator. Tujuannya: kumpulkan pola teks mentah dari SPPT
+    Kota Batu asli dulu, sebelum desain regex-nya — karena tanpa data nyata, regex yang ditulis cuma tebakan.
+  </div>
+
+  <header>
+    <h1>Lab OCR — SPPT Vision Engine</h1>
+    <p>Tesseract.js v5 &middot; bahasa Indonesia &middot; murni client-side, foto tidak diunggah ke mana pun.</p>
+  </header>
+
+  <div class="card">
+    <div class="step-label">Langkah 1 — Ambil / unggah foto SPPT</div>
+    <input type="file" id="fileInput" accept="image/*" capture="environment">
+    <div class="preview-row" id="previewRow" style="display:none;">
+      <div class="preview-box">
+        <span>Asli</span>
+        <img id="imgOriginal" alt="Foto asli">
+      </div>
+      <div class="preview-box">
+        <span>Setelah grayscale + binarization</span>
+        <canvas id="canvasProcessed"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="step-label">Langkah 2 — Hasil OCR (teks mentah, belum diparse)</div>
+    <div class="status" id="status">Belum ada foto dipilih.</div>
+    <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
+    <textarea id="rawOutput" readonly placeholder="Teks mentah hasil Tesseract akan muncul di sini..."></textarea>
+    <div class="meta-row">
+      <span id="timingInfo"></span>
+      <span id="confidenceInfo"></span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* =================================================================
+   LAB OCR — FASE 1 SAJA.
+   Tujuan: lihat bagaimana Tesseract "membaca" format SPPT Kota Batu
+   yang sebenarnya, supaya regex di Fase 2 dirancang dari data nyata,
+   bukan tebakan format yang belum pernah dilihat.
+
+   TIDAK ADA regex parsing di sini. TIDAK ADA koneksi ke taxEngine.
+   Itu baru ditulis SETELAH ada minimal beberapa sampel teks mentah
+   asli yang sudah dikumpulkan dan dianalisis polanya.
+   ================================================================= */
+
+const fileInput = document.getElementById('fileInput');
+const previewRow = document.getElementById('previewRow');
+const imgOriginal = document.getElementById('imgOriginal');
+const canvasProcessed = document.getElementById('canvasProcessed');
+const statusEl = document.getElementById('status');
+const progressBar = document.getElementById('progressBar');
+const progressFill = document.getElementById('progressFill');
+const rawOutput = document.getElementById('rawOutput');
+const timingInfo = document.getElementById('timingInfo');
+const confidenceInfo = document.getElementById('confidenceInfo');
+
+/* -----------------------------------------------------------------
+   LAYER 1: Pre-processing — grayscale + binarization murni di canvas.
+   Tidak ada deteksi tepi/crop otomatis; itu di luar scope Fase 1.
+   ----------------------------------------------------------------- */
+function prosesGambar(img) {
+  const canvas = canvasProcessed;
+  const maxWidth = 1000; // batasi resolusi biar gak bikin tab browser hang di foto resolusi tinggi
+  const scale = Math.min(1, maxWidth / img.naturalWidth);
+  canvas.width = img.naturalWidth * scale;
+  canvas.height = img.naturalHeight * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const THRESHOLD = 150; // ambang biner — INI ANGKA AWAL, belum dikalibrasi ke sampel SPPT asli
+
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+    const bw = gray < THRESHOLD ? 0 : 255;
+    data[i] = data[i + 1] = data[i + 2] = bw;
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+/* -----------------------------------------------------------------
+   LAYER 2: Text Extraction — Tesseract worker, bahasa Indonesia.
+   ----------------------------------------------------------------- */
+async function jalankanOCR(canvas) {
+  statusEl.textContent = 'Mengunduh model bahasa Indonesia (sekali saja, di-cache browser)...';
+  statusEl.classList.add('active');
+  progressBar.classList.add('active');
+
+  const t0 = performance.now();
+  let worker = null;
+
+  // Timeout safeguard — kalau createWorker/recognize hang (misal Web Worker
+  // diblokir sandbox), jangan macet diam-diam, kasih pesan setelah 25 detik.
+  const timeout = (ms) => new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Timeout setelah ' + (ms / 1000) + ' detik — kemungkinan Web Worker diblokir oleh environment (sandbox/CSP), bukan masalah foto.')), ms)
+  );
+
+  try {
+    worker = await Promise.race([
+      Tesseract.createWorker('ind', 1, {
+        logger: (m) => {
+          if (m.status && typeof m.progress === 'number') {
+            progressFill.style.width = Math.round(m.progress * 100) + '%';
+            statusEl.textContent = terjemahkanStatus(m.status) + ' (' + Math.round(m.progress * 100) + '%)';
+          }
+        }
+      }),
+      timeout(25000)
+    ]);
+
+    const { data } = await Promise.race([ worker.recognize(canvas), timeout(25000) ]);
+    const t1 = performance.now();
+    rawOutput.value = data.text || '(Tesseract tidak menemukan teks apa pun pada gambar ini.)';
+    timingInfo.textContent = 'Waktu proses: ' + ((t1 - t0) / 1000).toFixed(1) + ' detik';
+    confidenceInfo.textContent = 'Confidence rata-rata: ' + (data.confidence ? data.confidence.toFixed(1) + '%' : 'tidak tersedia');
+    statusEl.textContent = 'Selesai.';
+    statusEl.classList.remove('active');
+  } catch (err) {
+    rawOutput.value = '';
+    statusEl.textContent = 'OCR gagal: ' + err.message;
+    statusEl.classList.remove('active');
+    console.error('Tesseract error:', err);
+  } finally {
+    if (worker) { try { await worker.terminate(); } catch (e) { /* worker mungkin sudah mati */ } }
+    progressBar.classList.remove('active');
+    progressFill.style.width = '0%';
+  }
+}
+
+function terjemahkanStatus(status) {
+  const map = {
+    'loading tesseract core': 'Memuat mesin OCR',
+    'initializing tesseract': 'Inisialisasi mesin OCR',
+    'loading language traineddata': 'Mengunduh model bahasa Indonesia',
+    'initializing api': 'Menyiapkan API',
+    'recognizing text': 'Membaca teks dari gambar'
+  };
+  return map[status] || status;
+}
+
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    imgOriginal.src = ev.target.result;
+    imgOriginal.onload = () => {
+      previewRow.style.display = 'flex';
+      const canvas = prosesGambar(imgOriginal);
+      jalankanOCR(canvas);
+    };
+  };
+  reader.readAsDataURL(file);
+});
+</script>
+</body>
+</html>
